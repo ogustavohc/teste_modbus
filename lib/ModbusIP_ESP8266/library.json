@@ -1,0 +1,10 @@
+{
+  "name": "ModbusIP_ESP8266",
+  "version": "1.0.0-local",
+  "description": "Modbus TCP server for ESP8266 with persistent connections and serial logging",
+  "frameworks": "arduino",
+  "platforms": "espressif8266",
+  "dependencies": {
+    "Modbus": "^1.0.0"
+  }
+}
