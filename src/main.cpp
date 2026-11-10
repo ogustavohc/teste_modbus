@@ -5,13 +5,17 @@
 #include "DHT.h"
 
 // Nome (SSID) da rede Wi-Fi à qual o ESP8266 tentará se conectar.
-const char* ssid     = "Pedro";
+const char* ssid     = "Fatec-P2-Terreo";
+
 // Senha da rede Wi-Fi; mantenha este valor privado e não o publique.
-const char* password = "B856E97E0";
+const char* password = "FatecJdi!";
 
 #define PINO_DHT 14
 #define BUZZER 5
 #define LED 4
+#define LDR A0
+#define LED_REATIVO 12
+const int LIMITE_LUMINOSIDADE = 250;
 
 float leitura_temperatura = 0;
 // Cria o objeto que armazena os registradores e atende às requisições Modbus.
@@ -21,8 +25,12 @@ ModbusIP mb;
 // diretamente, mas a forma de exibição pode variar conforme o software SCADA.
 const int HREG_CONTADOR = 0;   // Holding Register no offset 0: contador crescente.
 const int HREG_TEMP     = 1;   // Holding Register no offset 1: temperatura simulada.
-const int COIL_LED      = 0;
-const int COIL_BUZZER      = 1;   // Coil no offset 0: estado comandado para o LED.
+const int HREG_LDR      = 2;   // Holding Register no offset 2: leitura analógica do LDR (0 a 1023).
+const int COIL_LED      = 0;   // Coil no offset 0: estado comandado para o LED integrado.
+const int COIL_BUZZER      = 1;   // Coil no offset 1: estado comandado para o Buzzer.
+const int ISTS_STATUS_LED_REATIVO = 3; // Entrada discreta no offset 3: estado do LED reativo.
+
+int NIVEL_LUMINOSIDADE = 0;  // Variável global para armazenar o nível de luminosidade lido do LDR.
 
 // Guarda o instante da última atualização periódica, em milissegundos.
 unsigned long ultimo = 0;
@@ -47,6 +55,7 @@ void setup() {
   pinMode(BUZZER, OUTPUT);
   digitalWrite(LED, HIGH);
   pinMode(LED, OUTPUT);
+  pinMode(LED_REATIVO, OUTPUT);
   // Inicia a conexão Wi-Fi e o servidor Modbus TCP, que escuta na porta 502.
   mb.config(ssid, password);
   // Imprime o início do processo de conexão no Monitor Serial.
@@ -61,6 +70,9 @@ void setup() {
   }
   // Mantém o LED integrado aceso após a conexão ser estabelecida.
   digitalWrite(LED_BUILTIN, LOW);
+  // Declara a variável
+  NIVEL_LUMINOSIDADE = analogRead(LDR);
+
   // Termina a linha dos pontos impressos durante a conexão.
   Serial.println();
   // Identifica a mensagem com o endereço IP local do ESP8266.
@@ -69,7 +81,8 @@ void setup() {
   Serial.println(WiFi.localIP());
   // Informa que o servidor Modbus TCP está aguardando na porta definida pela biblioteca.
   Serial.printf("Servidor Modbus TCP aguardando na porta %u\n", MODBUSIP_PORT);
-
+  // Registra a leitura analógica atual do LDR no Holding Register.
+  mb.addHreg(HREG_LDR, NIVEL_LUMINOSIDADE);
   // Cria o Holding Register do contador e define seu valor inicial como zero.
   mb.addHreg(HREG_CONTADOR, 0);
   mb.addHreg(HREG_TEMP, dht.readTemperature());
@@ -79,6 +92,9 @@ void setup() {
   // Cria a Coil de controle do LED e inicia seu estado como desligado (false).
   mb.addCoil(COIL_LED, false);
   mb.addCoil(COIL_BUZZER, false);
+  bool ledReativoAtivo = NIVEL_LUMINOSIDADE < LIMITE_LUMINOSIDADE;
+  mb.addIsts(ISTS_STATUS_LED_REATIVO, ledReativoAtivo);
+  digitalWrite(LED_REATIVO, ledReativoAtivo ? HIGH : LOW);
   dht.begin();
 }
 
@@ -86,12 +102,16 @@ void setup() {
 void loop() {
   // Verifica e processa conexões e requisições Modbus recebidas pelo servidor.
   mb.task();
-  
+
   // Lê a Coil do LED e atualiza o pino; a saída LOW acende o LED integrado,
   // enquanto HIGH o apaga.
   
   digitalWrite(LED, mb.Coil(COIL_LED) ? LOW : HIGH);
   digitalWrite(BUZZER, mb.Coil(COIL_BUZZER) ? LOW : HIGH);
+  bool ledReativoAtivo = NIVEL_LUMINOSIDADE < LIMITE_LUMINOSIDADE;
+  digitalWrite(LED_REATIVO, ledReativoAtivo ? HIGH : LOW);
+  mb.Ists(ISTS_STATUS_LED_REATIVO, ledReativoAtivo);
+
 
   // Verifica se já passou pelo menos um segundo desde a atualização anterior.
   // A subtração funciona também quando millis() transborda, desde que o
@@ -105,6 +125,9 @@ void loop() {
     mb.Hreg(HREG_CONTADOR, contador);
     mb.Hreg(HREG_TEMP, dht.readTemperature());
     // Atualiza a temperatura simulada entre 25,0 e 26,9 (escala de décimos).
-    
+    // Lê o valor analógico do LDR e atualiza seu Holding Register.
+    NIVEL_LUMINOSIDADE = analogRead(LDR);
+    mb.Hreg(HREG_LDR, NIVEL_LUMINOSIDADE);
+    Serial.printf("Valor do LDR: %d\n", NIVEL_LUMINOSIDADE);
   }
 }
